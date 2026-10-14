@@ -10,11 +10,13 @@ import { App, Component, MarkdownRenderer, Notice, setIcon, TFile } from "obsidi
 import {
   AnnotationColor,
   AnnotationPluginSettings,
+  AnnotationType,
   FileAnnotationDocument,
   PdfAnchor,
   PdfCommentAnnotation,
   PdfHighlightAnnotation,
 } from "../storage/types";
+import { createTextSnapshot } from "../utils/textSnapshot";
 
 interface PdfAnnotationLayerOptions {
   app: App;
@@ -23,6 +25,7 @@ interface PdfAnnotationLayerOptions {
   getDocument: (file: TFile) => Promise<FileAnnotationDocument>;
   getCachedDocument: (filePath: string) => FileAnnotationDocument | null;
   addHighlight: (file: TFile, highlight: PdfHighlightAnnotation) => Promise<void>;
+  writeAnnotationImage: (file: TFile, annotationId: string, data: ArrayBuffer) => Promise<string>;
   addComment: (file: TFile, comment: PdfCommentAnnotation) => Promise<void>;
   updateComment: (file: TFile, comment: PdfCommentAnnotation) => Promise<void>;
   deleteAnnotation: (file: TFile, annotationId: string) => Promise<void>;
@@ -66,19 +69,31 @@ export class PdfAnnotationLayer {
     this.scheduleRender();
   }
 
-  async createHighlight(color: AnnotationColor): Promise<boolean> {
+  async createAnnotation(type: AnnotationType, color: AnnotationColor): Promise<boolean> {
     const snapshot = this.resolveSelection();
     if (!snapshot) {
       new Notice("Select text in a PDF first.");
       return true;
     }
 
-    await this.options.addHighlight(snapshot.file, {
-      id: crypto.randomUUID(),
+    const id = crypto.randomUUID();
+    const highlight: PdfHighlightAnnotation = {
+      id,
       color,
+      type,
       anchor: snapshot.anchor,
       createdAt: new Date().toISOString(),
-    });
+    };
+    if (type === "screenshot") {
+      try {
+        const image = await createTextSnapshot(snapshot.anchor.selectedText);
+        highlight.imagePath = await this.options.writeAnnotationImage(snapshot.file, id, image);
+      } catch {
+        new Notice("Could not create screenshot annotation.");
+        return true;
+      }
+    }
+    await this.options.addHighlight(snapshot.file, highlight);
     this.clearSelection();
     this.scheduleRender();
     return true;
@@ -175,17 +190,19 @@ export class PdfAnnotationLayer {
 
         const pageRect = page.getBoundingClientRect();
         const highlight = this.root.createDiv({
-          cls: `axl-pdf-highlight axl-pdf-highlight--${annotation.color}`,
+          cls: `axl-annotation axl-pdf-highlight axl-pdf-highlight--${annotation.color} axl-annotation--${
+            "type" in annotation ? annotation.type ?? "highlight" : "highlight"
+          }`,
           attr: {
             "data-axl-id": annotation.id,
             "data-axl-color": annotation.color,
+            "data-axl-type": "type" in annotation ? annotation.type ?? "highlight" : "highlight",
           },
         });
         highlight.style.left = `${pageRect.left - hostRect.left + rect.left * pageRect.width}px`;
         highlight.style.top = `${pageRect.top - hostRect.top + rect.top * pageRect.height}px`;
         highlight.style.width = `${rect.width * pageRect.width}px`;
         highlight.style.height = `${rect.height * pageRect.height}px`;
-        highlight.style.setProperty("background-color", pdfHighlightBackground(annotation.color), "important");
       }
     }
   }
@@ -379,17 +396,4 @@ function selectionContainer(selection: Selection): Element | null {
 
   const node = selection.getRangeAt(0).commonAncestorContainer;
   return node instanceof Element ? node : node.parentElement;
-}
-
-function pdfHighlightBackground(color: AnnotationColor): string {
-  const colors: Record<AnnotationColor, string> = {
-    yellow: "rgba(255, 213, 0, 0.35)",
-    orange: "rgba(255, 140, 0, 0.35)",
-    pink: "rgba(255, 105, 180, 0.35)",
-    green: "rgba(82, 196, 26, 0.35)",
-    blue: "rgba(22, 119, 255, 0.35)",
-    purple: "rgba(114, 46, 209, 0.35)",
-  };
-
-  return colors[color] ?? colors.yellow;
 }

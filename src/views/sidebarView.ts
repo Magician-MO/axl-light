@@ -10,8 +10,10 @@ import { ItemView, MarkdownRenderer, MarkdownView, Notice, setIcon, TFile, Works
 import type OverlayAnnotationsPlugin from "../../main";
 import {
   ANNOTATION_COLORS,
+  ANNOTATION_TYPES,
   AnnotationColor,
   AnnotationSortMode,
+  AnnotationType,
   CommentAnnotation,
   HighlightAnnotation,
   PdfCommentAnnotation,
@@ -20,9 +22,8 @@ import {
 
 export const ANNOTATION_SIDEBAR_VIEW = "axl-light-sidebar";
 
-type AnnotationKind = "highlight" | "note";
 type AnnotationMode = "md" | "pdf";
-type TypeFilter = "all" | AnnotationKind;
+type TypeFilter = "all" | AnnotationType | "note";
 
 type HighlightSource =
   | {
@@ -60,6 +61,7 @@ type SidebarCard =
       kind: "highlight";
       mode: AnnotationMode;
       color: AnnotationColor;
+      type: AnnotationType;
       text: string;
       content: string;
       createdAt: string;
@@ -75,6 +77,7 @@ type SidebarCard =
       kind: "note";
       mode: AnnotationMode;
       color: AnnotationColor;
+      type: "note";
       text: string;
       content: string;
       createdAt: string;
@@ -141,7 +144,7 @@ export class AnnotationSidebarView extends ItemView {
     const noteCount =
       document.comments.filter((comment) => !comment.orphaned).length +
       document.pdfComments.filter((comment) => !comment.orphaned).length;
-    container.createDiv({ cls: "axl-ov-count", text: `${highlightCount} highlights · ${noteCount} notes` });
+    container.createDiv({ cls: "axl-ov-count", text: `${highlightCount} annotations · ${noteCount} comments` });
 
     const list = container.createDiv({ cls: "axl-ov-list" });
     if (!cards.length) {
@@ -290,6 +293,7 @@ export class AnnotationSidebarView extends ItemView {
       kind: "highlight",
       mode: source.mode,
       color: source.highlight.color,
+      type: source.highlight.type ?? "highlight",
       text: source.highlight.anchor.selectedText,
       content: source.note?.content ?? "",
       createdAt: source.highlight.createdAt,
@@ -308,6 +312,7 @@ export class AnnotationSidebarView extends ItemView {
       kind: "note",
       mode: source.mode,
       color: source.note.color,
+      type: "note",
       text: source.note.anchor.selectedText,
       content: source.note.content,
       createdAt: source.note.createdAt,
@@ -361,7 +366,9 @@ export class AnnotationSidebarView extends ItemView {
 
     const type = filterRow.createEl("select", { cls: "axl-filter-select" });
     type.createEl("option", { text: "All types", value: "all" });
-    type.createEl("option", { text: "highlight", value: "highlight" });
+    for (const annotationType of ANNOTATION_TYPES) {
+      type.createEl("option", { text: annotationType, value: annotationType });
+    }
     type.createEl("option", { text: "note", value: "note" });
     type.value = this.type;
     type.addEventListener("change", async () => {
@@ -394,7 +401,7 @@ export class AnnotationSidebarView extends ItemView {
     const title = cardData.note?.title ?? "";
     const type = head.createSpan({
       cls: "axl-ov-type",
-      text: title ? getTitleLabel(title) : cardData.kind,
+      text: title ? getTitleLabel(title) : cardData.type,
     });
     if (title) {
       type.dataset.title = title;
@@ -405,6 +412,16 @@ export class AnnotationSidebarView extends ItemView {
     quote.textContent = cardData.text;
     quote.toggleClass("is-code", cardData.isCode || isCodeLikeText(cardData.text));
     this.addExpandToggle(quote, card);
+    if (cardData.type === "screenshot" && cardData.highlight?.imagePath) {
+      const image = card.createEl("img", {
+        cls: "axl-ov-screenshot",
+        attr: {
+          src: this.plugin.store.getResourcePath(cardData.highlight.imagePath),
+          alt: `Screenshot of ${cardData.text.slice(0, 80)}`,
+        },
+      });
+      image.addEventListener("error", () => image.addClass("is-missing"));
+    }
     if (cardData.content) {
       const content = card.createDiv({ cls: "axl-ov-content" });
       void MarkdownRenderer.render(this.app, cardData.content, content, file.path, this).then(() => {
@@ -427,7 +444,7 @@ export class AnnotationSidebarView extends ItemView {
     } else if (cardData.highlight) {
       const addNote = actions.createEl("button", {
         cls: "axl-ov-btn",
-        text: "Add note",
+        text: "Comment",
         attr: { type: "button", "data-action": "add-note" },
       });
       addNote.addEventListener("click", () => {
@@ -442,6 +459,19 @@ export class AnnotationSidebarView extends ItemView {
       attr: { type: "button", "data-action": "jump" },
     });
     jump.addEventListener("click", () => this.jumpTo(file, cardData.startOffset, cardData.pageNumber));
+
+    const link = actions.createEl("button", {
+      cls: "axl-ov-btn",
+      text: "Link",
+      attr: { type: "button", "data-action": "copy-link", title: "Copy Obsidian annotation link" },
+    });
+    link.addEventListener("click", async () => {
+      try {
+        await this.plugin.copyAnnotationLink(file, cardData.id, cardData.text);
+      } catch {
+        new Notice("Could not copy annotation link");
+      }
+    });
 
     const remove = actions.createEl("button", {
       cls: "axl-ov-btn axl-ov-btn--danger",
@@ -622,10 +652,10 @@ export class AnnotationSidebarView extends ItemView {
         if (this.type === "all") {
           return true;
         }
-        if (this.type === "highlight") {
-          return card.kind === "highlight";
+        if (this.type === "note") {
+          return Boolean(card.note);
         }
-        return Boolean(card.note);
+        return card.kind === "highlight" && card.type === this.type;
       })
       .filter((card) => {
         const haystack = `${card.text} ${card.content}`.toLowerCase();

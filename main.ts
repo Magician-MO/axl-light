@@ -17,25 +17,23 @@ import { AnnotationStore } from "./src/storage/annotationStore";
 import {
   AnnotationColor,
   AnnotationPluginSettings,
+  AnnotationType,
   CommentAnnotation,
   DEFAULT_SETTINGS,
   HighlightAnnotation,
   SelectionSnapshot,
 } from "./src/storage/types";
+import { createTextSnapshot } from "./src/utils/textSnapshot";
 import { AnnotationPopover } from "./src/views/annotationPopover";
 import { CommentModal } from "./src/views/commentModal";
 import { ANNOTATION_SIDEBAR_VIEW, AnnotationSidebarView } from "./src/views/sidebarView";
 
 const AXL_LIGHT_ICON = `
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-    <rect x="5" y="5" width="90" height="90" rx="20" ry="20" fill="#F5C518"/>
-    <g transform="translate(50,50) rotate(-45) translate(-18,-18)"
-      fill="none" stroke="#000" stroke-width="6"
-      stroke-linecap="round" stroke-linejoin="round">
-      <rect x="8" y="2" width="20" height="28" rx="3" fill="#000" stroke="none"/>
-      <polygon points="8,30 28,30 18,42" fill="#000" stroke="none"/>
-      <line x1="8" y1="10" x2="28" y2="10" stroke="#F5C518" stroke-width="3"/>
-    </g>
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m14.7 4.3 5 5"/>
+    <path d="M5 19l3.7-.8L19.4 7.5a1.4 1.4 0 0 0 0-2l-.9-.9a1.4 1.4 0 0 0-2 0L5.8 15.3 5 19Z"/>
+    <path d="M4 21h16"/>
   </svg>
 `;
 
@@ -67,7 +65,8 @@ export default class OverlayAnnotationsPlugin extends Plugin {
     ]);
 
     this.toolbar = new SelectionToolbar({
-      onHighlight: (color) => this.createHighlight(color),
+      defaultColor: this.settings.defaultHighlightColor,
+      onAnnotate: (type, color) => this.createAnnotation(type, color),
       onComment: () => this.createComment(),
       onCopy: () => this.copySelection(),
       onOpenSidebar: () => this.activateSidebar(),
@@ -83,6 +82,8 @@ export default class OverlayAnnotationsPlugin extends Plugin {
         await this.store.addPdfHighlight(file, highlight);
         await this.refreshAnnotations();
       },
+      writeAnnotationImage: (file, annotationId, data) =>
+        this.store.writeAnnotationImage(file, annotationId, data),
       addComment: async (file, comment) => {
         await this.store.addPdfComment(file, comment);
         await this.refreshAnnotations();
@@ -137,7 +138,7 @@ export default class OverlayAnnotationsPlugin extends Plugin {
   }
 
   private registerRibbonIcon(): void {
-    const icon = this.addRibbonIcon("highlighter", "Open Axl Light", () => {
+    const icon = this.addRibbonIcon("axl-light-icon", "Open Axl Light", () => {
       void this.activateSidebar();
     });
     icon.addClass("axl-ribbon-icon");
@@ -184,6 +185,9 @@ export default class OverlayAnnotationsPlugin extends Plugin {
       }
     });
     this.registerDomEvent(document, "click", (event) => {
+      if (this.handleAnnotationLink(event)) {
+        return;
+      }
       void this.handleAnnotationClick(event);
     });
 
@@ -236,9 +240,9 @@ export default class OverlayAnnotationsPlugin extends Plugin {
     );
   }
 
-  private async createHighlight(color: AnnotationColor): Promise<void> {
+  private async createAnnotation(type: AnnotationType, color: AnnotationColor): Promise<void> {
     if (this.pdfLayer.isPdfActive()) {
-      await this.pdfLayer.createHighlight(color);
+      await this.pdfLayer.createAnnotation(type, color);
       this.toolbar.hide();
       return;
     }
@@ -258,14 +262,29 @@ export default class OverlayAnnotationsPlugin extends Plugin {
     const highlight: HighlightAnnotation = {
       id: crypto.randomUUID(),
       color,
+      type,
       anchor: createAnchorForSnapshot(await this.app.vault.cachedRead(file), snapshot),
       createdAt: new Date().toISOString(),
     };
+
+    if (type === "screenshot") {
+      try {
+        const image = await createTextSnapshot(highlight.anchor.selectedText);
+        highlight.imagePath = await this.store.writeAnnotationImage(file, highlight.id, image);
+      } catch {
+        new Notice("Could not create screenshot annotation.");
+        return;
+      }
+    }
 
     await this.store.addHighlight(file, highlight);
     await this.refreshActiveReadingViewHighlights(file.path);
     await this.refreshAnnotations();
     this.toolbar.hide();
+  }
+
+  private async createHighlight(color: AnnotationColor): Promise<void> {
+    await this.createAnnotation("highlight", color);
   }
 
   private async createComment(): Promise<void> {
@@ -437,7 +456,7 @@ export default class OverlayAnnotationsPlugin extends Plugin {
       return;
     }
 
-    const mark = target.closest<HTMLElement>(".axl-highlight, .axl-reading-highlight");
+    const mark = target.closest<HTMLElement>(".axl-highlight, .axl-reading-highlight, .axl-annotation");
     if (!mark) {
       if (!target.closest(".axl-annotation-popover")) {
         this.popover.hide();
@@ -477,6 +496,69 @@ export default class OverlayAnnotationsPlugin extends Plugin {
       sourcePath: file.path,
       items,
     });
+  }
+
+  private handleAnnotationLink(event: MouseEvent): boolean {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return false;
+    }
+
+    const link = target.closest<HTMLElement>("a.internal-link");
+    const href = link?.dataset.href ?? link?.getAttribute("href") ?? "";
+    const parsed = /^(.*)#axl-annotation-([0-9a-f-]+)$/i.exec(decodeURIComponent(href));
+    if (!link || !parsed) {
+      return false;
+    }
+
+    const sourcePath = this.app.workspace.getActiveFile()?.path ?? "";
+    const file = this.app.metadataCache.getFirstLinkpathDest(parsed[1], sourcePath);
+    if (!(file instanceof TFile)) {
+      return false;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    void this.jumpToAnnotation(file, parsed[2]);
+    return true;
+  }
+
+  async jumpToAnnotation(file: TFile, annotationId: string): Promise<void> {
+    const document = await this.store.getDocument(file);
+    const markdown = [...document.highlights, ...document.comments].find((item) => item.id === annotationId);
+    const pdf = [...document.pdfHighlights, ...document.pdfComments].find((item) => item.id === annotationId);
+    const leaf = this.app.workspace.getLeaf(false);
+    await leaf.openFile(file);
+
+    if (pdf) {
+      window.setTimeout(() => {
+        const page = documentQueryPdfPage(pdf.anchor.pageNumber);
+        page?.scrollIntoView({ block: "center" });
+        flashElement(page);
+      }, 160);
+      return;
+    }
+
+    if (!markdown) {
+      return;
+    }
+    const view = leaf.view instanceof MarkdownView ? leaf.view : this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view) {
+      return;
+    }
+    const from = view.editor.offsetToPos(markdown.anchor.startOffset);
+    const to = view.editor.offsetToPos(markdown.anchor.endOffset);
+    view.editor.setSelection(from, to);
+    view.editor.scrollIntoView({ from, to }, true);
+    flashElement(view.containerEl);
+  }
+
+  async copyAnnotationLink(file: TFile, annotationId: string, label: string): Promise<void> {
+    const linkPath = file.path.replace(/\.md$/i, "").replace(/([\\|\]])/g, "\\$1");
+    const alias = label.replace(/\s+/g, " ").trim().slice(0, 80).replace(/([\\|\]])/g, "\\$1") || "Annotation";
+    const link = `[[${linkPath}#axl-annotation-${annotationId}|${alias}]]`;
+    await writeClipboardText(link);
+    new Notice("Annotation link copied");
   }
 
   private async renderReadingHighlights(element: HTMLElement, context: MarkdownPostProcessorContext): Promise<void> {
@@ -738,4 +820,18 @@ async function writeClipboardText(text: string): Promise<void> {
       textarea.remove();
     }
   }
+}
+
+function documentQueryPdfPage(pageNumber: number): HTMLElement | null {
+  return document.querySelector<HTMLElement>(
+    `.workspace-leaf.mod-active .pdf-page[data-page-number="${pageNumber}"], .workspace-leaf.mod-active .page[data-page-number="${pageNumber}"]`,
+  );
+}
+
+function flashElement(element: HTMLElement | null): void {
+  if (!element) {
+    return;
+  }
+  element.addClass("axl-flash-target");
+  window.setTimeout(() => element.removeClass("axl-flash-target"), 850);
 }

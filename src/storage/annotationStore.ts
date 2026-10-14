@@ -19,6 +19,7 @@ import {
 } from "./types";
 
 const STORE_DIR = ".obsidian-annotations";
+const ASSET_DIR = normalizePath(`${STORE_DIR}/assets`);
 const INDEX_PATH = normalizePath(`${STORE_DIR}/index.json`);
 const SIDECAR_SLUG_MAX_LENGTH = 72;
 const FNV_OFFSET_BASIS = 0xcbf29ce484222325n;
@@ -82,6 +83,22 @@ export class AnnotationStore {
     document.lastModified = new Date().toISOString();
     await this.saveDocument(document);
     return document;
+  }
+
+  async writeAnnotationImage(file: TFile, annotationId: string, data: ArrayBuffer): Promise<string> {
+    await this.ensureStoreDir();
+    if (!(await this.app.vault.adapter.exists(ASSET_DIR))) {
+      await this.app.vault.adapter.mkdir(ASSET_DIR);
+    }
+
+    const fileSlug = this.toSidecarSlug(this.normalizeVaultPath(file.path).toLowerCase()).slice(0, 36);
+    const imagePath = normalizePath(`${ASSET_DIR}/${fileSlug}--${annotationId}.png`);
+    await this.app.vault.adapter.writeBinary(imagePath, data);
+    return imagePath;
+  }
+
+  getResourcePath(path: string): string {
+    return this.app.vault.adapter.getResourcePath(normalizePath(path));
   }
 
   async addComment(file: TFile, comment: CommentAnnotation): Promise<FileAnnotationDocument> {
@@ -180,12 +197,18 @@ export class AnnotationStore {
 
   async removeAnnotation(file: TFile, annotationId: string): Promise<FileAnnotationDocument> {
     const document = await this.getDocument(file);
+    const imagePaths = [...document.highlights, ...document.pdfHighlights]
+      .filter((item) => item.id === annotationId && item.imagePath)
+      .map((item) => item.imagePath!);
     document.highlights = document.highlights.filter((item) => item.id !== annotationId);
     document.comments = document.comments.filter((item) => item.id !== annotationId);
     document.pdfHighlights = document.pdfHighlights.filter((item) => item.id !== annotationId);
     document.pdfComments = document.pdfComments.filter((item) => item.id !== annotationId);
     document.lastModified = new Date().toISOString();
     await this.saveDocument(document);
+    for (const imagePath of imagePaths) {
+      await this.deleteIfExists(imagePath);
+    }
     return document;
   }
 
@@ -222,10 +245,10 @@ export class AnnotationStore {
       "## Highlights",
       "",
       ...document.highlights.map((highlight) => {
-        return `- ==${highlight.anchor.selectedText}== (${highlight.color}, ${highlight.createdAt})`;
+        return `- ==${highlight.anchor.selectedText}== (${highlight.type ?? "highlight"}, ${highlight.color}, ${highlight.createdAt})`;
       }),
       ...document.pdfHighlights.map((highlight) => {
-        return `- ==${highlight.anchor.selectedText}== (PDF page ${highlight.anchor.pageNumber}, ${highlight.color}, ${highlight.createdAt})`;
+        return `- ==${highlight.anchor.selectedText}== (PDF page ${highlight.anchor.pageNumber}, ${highlight.type ?? "highlight"}, ${highlight.color}, ${highlight.createdAt})`;
       }),
       "",
       "## Sticky Notes",

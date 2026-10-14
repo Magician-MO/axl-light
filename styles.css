@@ -64,6 +64,45 @@
   color: inherit;
 }
 
+.axl-highlight--yellow,
+.axl-pdf-highlight--yellow { --axl-mark-color: #d5a900; }
+.axl-highlight--orange,
+.axl-pdf-highlight--orange { --axl-mark-color: #e47700; }
+.axl-highlight--pink,
+.axl-pdf-highlight--pink { --axl-mark-color: #df4591; }
+.axl-highlight--green,
+.axl-pdf-highlight--green { --axl-mark-color: #3b9f17; }
+.axl-highlight--blue,
+.axl-pdf-highlight--blue { --axl-mark-color: #1677ff; }
+.axl-highlight--purple,
+.axl-pdf-highlight--purple { --axl-mark-color: #722ed1; }
+
+.axl-annotation--underline,
+.axl-annotation--wavy,
+.axl-annotation--screenshot {
+  background-color: transparent !important;
+  border-radius: 0;
+}
+
+.axl-annotation--underline {
+  text-decoration-line: underline;
+  text-decoration-color: var(--axl-mark-color);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+.axl-annotation--wavy {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: var(--axl-mark-color);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+}
+
+.axl-annotation--screenshot {
+  border-bottom: 1.5px dashed var(--axl-mark-color);
+}
+
 .axl-flash-target {
   animation: axl-flash 0.85s ease;
 }
@@ -75,7 +114,19 @@
 
 /* ===== Shared controls ===== */
 .axl-ribbon-icon {
-  color: var(--axl-yellow);
+  color: var(--icon-color);
+}
+
+.axl-ribbon-icon svg,
+.axl-icon-btn svg,
+.axl-icon-button svg {
+  display: block;
+  width: 18px !important;
+  height: 18px !important;
+  min-width: 18px;
+  min-height: 18px;
+  stroke-width: 1.8;
+  vector-effect: non-scaling-stroke;
 }
 
 .axl-icon-btn,
@@ -135,6 +186,8 @@
   position: absolute;
   z-index: 1000;
   white-space: nowrap;
+  max-width: calc(100vw - 16px);
+  overflow-x: auto;
   opacity: 0;
   pointer-events: none;
   transform: translate(-50%, -4px);
@@ -165,7 +218,8 @@
 }
 
 .axl-toolbar-color.active {
-  border-color: rgba(0, 0, 0, 0.25);
+  border-color: var(--text-normal);
+  box-shadow: 0 0 0 1px var(--background-primary);
 }
 
 .axl-toolbar-color--yellow,
@@ -203,6 +257,11 @@
   padding: 0;
   flex-shrink: 0;
   transition: background 0.15s, color 0.15s;
+}
+
+.axl-toolbar-action svg {
+  width: 16px;
+  height: 16px;
 }
 
 .axl-toolbar-action:hover {
@@ -435,6 +494,22 @@
   font-weight: 400;
   background: rgba(0, 0, 0, 0.06);
   letter-spacing: 0;
+}
+
+.axl-ov-screenshot {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+  box-sizing: border-box;
+  margin: 2px 0 8px;
+  border: 1px solid var(--axl-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+}
+
+.axl-ov-screenshot.is-missing {
+  display: none;
 }
 
 .theme-dark .axl-ov-quote {
@@ -807,6 +882,24 @@ span.axl-ov-expand-btn:hover {
 .axl-pdf-highlight--blue { background-color: rgba(22, 119, 255, 0.35) !important; }
 .axl-pdf-highlight[data-axl-color="purple"],
 .axl-pdf-highlight--purple { background-color: rgba(114, 46, 209, 0.35) !important; }
+
+.axl-pdf-highlight.axl-annotation--underline,
+.axl-pdf-highlight.axl-annotation--screenshot {
+  background-color: transparent !important;
+  border-bottom: 2px solid var(--axl-mark-color);
+}
+
+.axl-pdf-highlight.axl-annotation--screenshot {
+  border-bottom-style: dashed;
+}
+
+.axl-pdf-highlight.axl-annotation--wavy {
+  background-color: transparent !important;
+  background-image: radial-gradient(circle at 2px 1px, transparent 2px, var(--axl-mark-color) 2.5px, transparent 3px) !important;
+  background-position: left bottom;
+  background-repeat: repeat-x;
+  background-size: 8px 4px;
+}
 
 .axl-pdf-popover {
   position: fixed;

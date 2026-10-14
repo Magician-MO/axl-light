@@ -8,9 +8,11 @@
 import { MarkdownPostProcessorContext, MarkdownRenderChild, Platform } from "obsidian";
 
 import { findBestFuzzyMatch } from "../anchor/fuzzyMatch";
-import { AnnotationColor, CommentAnnotation, HighlightAnnotation, TextAnchor } from "../storage/types";
+import { AnnotationColor, AnnotationType, CommentAnnotation, HighlightAnnotation, TextAnchor } from "../storage/types";
 
-export type ReadingMark = Pick<HighlightAnnotation | CommentAnnotation, "id" | "color" | "anchor" | "orphaned">;
+export type ReadingMark = Pick<HighlightAnnotation | CommentAnnotation, "id" | "color" | "anchor" | "orphaned"> & {
+  type?: AnnotationType;
+};
 
 interface InstallReadingHighlightsOptions {
   root: HTMLElement;
@@ -54,7 +56,9 @@ export function installReadingViewHighlights(options: InstallReadingHighlightsOp
 
     frame = requestAnimationFrame(() => {
       frame = null;
+      observer.disconnect();
       refreshReadingViewHighlights(options.root, options.marks);
+      observe();
     });
   };
 
@@ -71,7 +75,8 @@ export function installReadingViewHighlights(options: InstallReadingHighlightsOp
 
     render();
   });
-  observer.observe(options.root, { childList: true, subtree: true, characterData: true });
+  const observe = (): void => observer.observe(options.root, { childList: true, subtree: true, characterData: true });
+  observe();
 
   component.register(() => {
     disposed = true;
@@ -99,7 +104,7 @@ function renderReadingHighlights(root: HTMLElement, marks: ReadingMark[]): void 
       continue;
     }
 
-    wrapRenderedAnchor(root, mark.anchor, mark.color, mark.id);
+    wrapRenderedAnchor(root, mark.anchor, mark.color, mark.id, mark.type ?? "highlight");
   }
 }
 
@@ -119,7 +124,7 @@ function renderCalloutReadingHighlights(root: HTMLElement, marks: ReadingMark[])
         continue;
       }
 
-      wrapRenderedAnchor(callout, mark.anchor, mark.color, mark.id);
+      wrapRenderedAnchor(callout, mark.anchor, mark.color, mark.id, mark.type ?? "highlight");
     }
   }
 }
@@ -158,7 +163,13 @@ function unwrapReadingHighlights(root: HTMLElement): void {
   }
 }
 
-function wrapRenderedAnchor(root: HTMLElement, anchor: TextAnchor, color: AnnotationColor, id: string): boolean {
+function wrapRenderedAnchor(
+  root: HTMLElement,
+  anchor: TextAnchor,
+  color: AnnotationColor,
+  id: string,
+  type: AnnotationType,
+): boolean {
   const snapshot = collectText(root);
   if (!snapshot.text.trim()) {
     return false;
@@ -169,12 +180,12 @@ function wrapRenderedAnchor(root: HTMLElement, anchor: TextAnchor, color: Annota
     return false;
   }
 
-  return wrapRange(snapshot.segments, range, color, id);
+  return wrapRange(snapshot.segments, range, color, id, type);
 }
 
 function locateRenderedRange(renderedText: string, anchor: TextAnchor): RenderedRange | null {
-  const exact = renderedText.indexOf(anchor.selectedText);
-  if (exact >= 0) {
+  const exact = bestExactOccurrence(renderedText, anchor);
+  if (exact !== null) {
     return {
       start: exact,
       end: exact + anchor.selectedText.length,
@@ -263,7 +274,10 @@ function collectText(root: HTMLElement): { text: string; segments: TextSegment[]
         return NodeFilter.FILTER_REJECT;
       }
 
-      if (parent.closest(`${MARK_SELECTOR}, mark.axl-highlight, pre, textarea, input`)) {
+      // Keep text inside marks in the index. Excluding it shifts every later
+      // coordinate after the first annotation and is the root cause of the
+      // intermittent multi-annotation rendering failure.
+      if (parent.closest("pre, textarea, input")) {
         return NodeFilter.FILTER_REJECT;
       }
 
@@ -286,7 +300,13 @@ function collectText(root: HTMLElement): { text: string; segments: TextSegment[]
   return { text, segments };
 }
 
-function wrapRange(segments: TextSegment[], range: RenderedRange, color: AnnotationColor, id: string): boolean {
+function wrapRange(
+  segments: TextSegment[],
+  range: RenderedRange,
+  color: AnnotationColor,
+  id: string,
+  type: AnnotationType,
+): boolean {
   const touched = segments.filter((segment) => segment.end > range.start && segment.start < range.end);
   if (!touched.length) {
     return false;
@@ -301,10 +321,10 @@ function wrapRange(segments: TextSegment[], range: RenderedRange, color: Annotat
 
     const selected = splitTextRange(segment.node, localStart, localEnd);
     const mark = document.createElement("mark");
-    mark.className = `axl-reading-highlight axl-highlight axl-highlight--${color}`;
+    mark.className = `axl-annotation axl-reading-highlight axl-highlight axl-highlight--${color} axl-annotation--${type}`;
     mark.dataset.axlColor = color;
     mark.dataset.axlId = id;
-    mark.style.setProperty("background-color", highlightBackground(color), "important");
+    mark.dataset.axlType = type;
     mark.tabIndex = 0;
     selected.parentNode?.insertBefore(mark, selected);
     mark.appendChild(selected);
@@ -327,17 +347,51 @@ function splitTextRange(node: Text, start: number, end: number): Text {
   return selected;
 }
 
-function highlightBackground(color: string): string {
-  const colors: Record<string, string> = {
-    yellow: "rgba(245, 197, 24, 0.42)",
-    orange: "rgba(255, 140, 0, 0.36)",
-    pink: "rgba(255, 105, 180, 0.32)",
-    green: "rgba(82, 196, 26, 0.30)",
-    blue: "rgba(22, 119, 255, 0.28)",
-    purple: "rgba(114, 46, 209, 0.30)",
-  };
+function bestExactOccurrence(renderedText: string, anchor: TextAnchor): number | null {
+  const candidates: number[] = [];
+  let cursor = renderedText.indexOf(anchor.selectedText);
+  while (cursor >= 0) {
+    candidates.push(cursor);
+    cursor = renderedText.indexOf(anchor.selectedText, cursor + 1);
+  }
+  if (!candidates.length) {
+    return null;
+  }
+  if (candidates.length === 1) {
+    return candidates[0];
+  }
 
-  return colors[color] ?? colors.yellow;
+  return candidates.reduce((best, candidate) => {
+    const bestScore = occurrenceContextScore(renderedText, best, anchor);
+    const candidateScore = occurrenceContextScore(renderedText, candidate, anchor);
+    return candidateScore > bestScore ? candidate : best;
+  });
+}
+
+function occurrenceContextScore(text: string, start: number, anchor: TextAnchor): number {
+  const end = start + anchor.selectedText.length;
+  const prefix = normalizeForContext(text.slice(Math.max(0, start - anchor.prefix.length - 16), start));
+  const suffix = normalizeForContext(text.slice(end, end + anchor.suffix.length + 16));
+  const expectedPrefix = normalizeForContext(anchor.prefix);
+  const expectedSuffix = normalizeForContext(anchor.suffix);
+  return sharedEdgeLength(prefix, expectedPrefix, true) + sharedEdgeLength(suffix, expectedSuffix, false);
+}
+
+function normalizeForContext(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function sharedEdgeLength(left: string, right: string, fromEnd: boolean): number {
+  const max = Math.min(left.length, right.length);
+  let shared = 0;
+  for (let length = 1; length <= max; length += 1) {
+    const a = fromEnd ? left.slice(-length) : left.slice(0, length);
+    const b = fromEnd ? right.slice(-length) : right.slice(0, length);
+    if (a === b) {
+      shared = length;
+    }
+  }
+  return shared;
 }
 
 function isOwnHighlightMutation(mutation: MutationRecord): boolean {

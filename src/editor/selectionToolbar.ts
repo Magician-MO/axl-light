@@ -5,10 +5,11 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { ANNOTATION_COLORS, AnnotationColor } from "../storage/types";
+import { ANNOTATION_COLORS, AnnotationColor, AnnotationType } from "../storage/types";
 
 interface SelectionToolbarOptions {
-  onHighlight: (color: AnnotationColor) => void;
+  defaultColor: AnnotationColor;
+  onAnnotate: (type: AnnotationType, color: AnnotationColor) => void;
   onComment: () => void;
   onCopy: () => void;
   onOpenSidebar: () => void;
@@ -17,11 +18,13 @@ interface SelectionToolbarOptions {
 export class SelectionToolbar {
   private readonly element: HTMLElement;
   private visible = false;
+  private selectedColor: AnnotationColor;
   private readonly handleMouseUp = (): void => {
     window.setTimeout(() => this.showForSelection(), 0);
   };
 
   constructor(private readonly options: SelectionToolbarOptions) {
+    this.selectedColor = options.defaultColor;
     this.element = document.body.createDiv({ cls: "axl-toolbar axl-selection-toolbar" });
     this.render();
     this.hide();
@@ -73,7 +76,21 @@ export class SelectionToolbar {
           "data-axl-color": color,
         },
       });
-      button.addEventListener("click", () => this.options.onHighlight(color));
+      button.toggleClass("active", color === this.selectedColor);
+      button.addEventListener("click", () => {
+        this.selectedColor = color;
+        for (const item of Array.from(this.element.querySelectorAll<HTMLElement>(".axl-toolbar-color"))) {
+          item.toggleClass("active", item.dataset.axlColor === color);
+        }
+      });
+    }
+
+    this.element.createDiv({ cls: "axl-toolbar-sep" });
+
+    for (const item of ANNOTATION_ACTIONS) {
+      const button = this.iconButton(item.label, item.svg);
+      button.dataset.axlType = item.type;
+      button.addEventListener("click", () => this.options.onAnnotate(item.type, this.selectedColor));
     }
 
     this.element.createDiv({ cls: "axl-toolbar-sep" });
@@ -151,3 +168,34 @@ const OVERVIEW_ICON = `
     <line x1="3" y1="18" x2="3.01" y2="18"/>
   </svg>
 `;
+
+const HIGHLIGHT_ICON = `
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-9-9-4 4 9 9 4-4Z"/>
+  </svg>
+`;
+
+const UNDERLINE_ICON = `
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+    <path d="M6 4v7a6 6 0 0 0 12 0V4"/><path d="M4 21h16"/>
+  </svg>
+`;
+
+const WAVY_ICON = `
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+    <path d="M3 8h18"/><path d="M3 17c2-3 4 3 6 0s4 3 6 0 4 3 6 0"/>
+  </svg>
+`;
+
+const SCREENSHOT_ICON = `
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14.5 5 13 3h-2L9.5 5H5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4.5Z"/><circle cx="12" cy="12" r="3"/>
+  </svg>
+`;
+
+const ANNOTATION_ACTIONS: ReadonlyArray<{ type: AnnotationType; label: string; svg: string }> = [
+  { type: "highlight", label: "Highlight", svg: HIGHLIGHT_ICON },
+  { type: "underline", label: "Underline", svg: UNDERLINE_ICON },
+  { type: "wavy", label: "Wavy underline", svg: WAVY_ICON },
+  { type: "screenshot", label: "Screenshot annotation", svg: SCREENSHOT_ICON },
+];

@@ -5,7 +5,6 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
-import { RangeSetBuilder } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import { editorInfoField } from "obsidian";
 
@@ -52,23 +51,25 @@ export function createHighlightExtension(options: HighlightExtensionOptions) {
           return Decoration.none;
         }
 
-        const builder = new RangeSetBuilder<Decoration>();
         const docLength = this.view.state.doc.length;
         const marks = [
           ...document.highlights.map((highlight) => ({
             id: highlight.id,
             color: highlight.color,
+            type: highlight.type ?? "highlight",
             anchor: highlight.anchor,
             orphaned: highlight.orphaned,
           })),
           ...document.comments.map((comment) => ({
             id: comment.id,
             color: comment.color,
+            type: "highlight" as const,
             anchor: comment.anchor,
             orphaned: comment.orphaned,
           })),
         ].sort((a, b) => a.anchor.startOffset - b.anchor.startOffset);
 
+        const ranges = [];
         for (const mark of marks) {
           if (mark.orphaned) {
             continue;
@@ -80,21 +81,22 @@ export function createHighlightExtension(options: HighlightExtensionOptions) {
             continue;
           }
 
-          builder.add(
-            from,
-            to,
+          ranges.push(
             Decoration.mark({
-              class: `axl-highlight axl-highlight--${mark.color}`,
+              class: `axl-annotation axl-highlight axl-highlight--${mark.color} axl-annotation--${mark.type}`,
               attributes: {
                 "data-axl-color": mark.color,
                 "data-axl-id": mark.id,
-                style: `background-color: ${highlightBackground(mark.color)} !important;`,
+                "data-axl-type": mark.type,
               },
-            }),
+            }).range(from, to),
           );
         }
 
-        return builder.finish();
+        // Decoration.set(..., true) supplies the full CodeMirror ordering, including
+        // equal starts and overlapping marks. RangeSetBuilder can silently fail the
+        // plugin update when repeated annotations arrive in a different side order.
+        return Decoration.set(ranges, true);
       }
 
       private captureSelection(): void {
@@ -124,17 +126,4 @@ export function createHighlightExtension(options: HighlightExtensionOptions) {
       decorations: (plugin) => plugin.decorations,
     },
   );
-}
-
-function highlightBackground(color: string): string {
-  const colors: Record<string, string> = {
-    yellow: "rgba(245, 197, 24, 0.42)",
-    orange: "rgba(255, 140, 0, 0.36)",
-    pink: "rgba(255, 105, 180, 0.32)",
-    green: "rgba(82, 196, 26, 0.30)",
-    blue: "rgba(22, 119, 255, 0.28)",
-    purple: "rgba(114, 46, 209, 0.30)",
-  };
-
-  return colors[color] ?? colors.yellow;
 }

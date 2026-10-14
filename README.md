@@ -1,17 +1,18 @@
 # Axl Light
 
-Axl Light is a non-invasive Obsidian reading annotation plugin for Markdown and PDF files. It adds overlay highlights, sticky notes, search, jump, and Markdown export while keeping your original documents clean.
+Axl Light is a non-invasive Obsidian reading annotation plugin for Markdown and PDF files. It adds overlay highlights, underlines, text snapshots, comments, searchable links, jump, and Markdown export while keeping your original documents clean.
 
 **This plugin never modifies your Markdown or PDF files.** Annotation data is stored separately in sidecar JSON files under `.obsidian-annotations/`.
 
 ## Features
 
-- Overlay highlights for Markdown Live Preview, Source Mode, Reading View, and PDFs
-- Mobile-friendly Reading View highlight recovery with delayed rendering and DOM observation
-- Floating toolbar with six colors, sticky note, copy, and annotation overview actions
+- Overlay highlights, straight underlines, wavy underlines, and screenshot-style text snapshots for Markdown and PDFs
+- Stable repeated and overlapping annotations in Live Preview, Source Mode, Reading View, and PDFs
+- Mobile-friendly Reading View annotation recovery with delayed rendering and DOM observation
+- Floating toolbar with six colors, explicit annotation types, comment, copy, and overview actions
 - Right-side sticky note lane with Markdown-rendered notes
 - Inline editing for sticky notes and sidebar notes
-- Sidebar overview with search, color filtering, sorting, jump, delete, add-note, and export
+- Sidebar overview with search, color/type filtering, sorting, jump, delete, Comment, Link, and export
 - Sidecar JSON storage with fuzzy text-anchor relocation
 - Windows-safe short sidecar filenames with legacy path migration
 
@@ -98,9 +99,9 @@ Do **not** download the source code ZIP from the green `Code` button. Obsidian n
 
 ## Usage
 
-### Highlight Text
+### Annotate Text
 
-Select text in Markdown or PDF. Use the floating toolbar to choose a color, add a sticky note, copy the selection, or open the overview.
+Select text in Markdown or PDF. Choose a color, then use the line-style action icons to create a highlight, straight underline, wavy underline, or screenshot annotation. The toolbar also offers comments, copy, and the annotation overview.
 
 ![Highlight with Axl Light](docs/images/highlight-with-axl-light.png)
 
@@ -112,7 +113,7 @@ Open the right-side sticky note lane or the annotation overview. Click the penci
 
 ### Search, Jump, and Export
 
-Use the annotation overview to search highlights and notes, jump back to the source position, delete annotations, add notes to existing highlights, or export everything into a new Markdown notes file.
+Use the annotation overview to search annotations and comments, jump back to the source position, delete annotations, add comments, copy Obsidian links to annotations, or export everything into a new Markdown notes file. Pasted annotation links use standard wikilink syntax, so Obsidian can show its normal hover preview; clicking them jumps to the annotation.
 
 ## Commands
 
@@ -128,11 +129,13 @@ Axl Light stores annotations in your vault:
 ```text
 .obsidian-annotations/
   index.json
+  assets/
+    2e1d0f65-annotation.png
   axl--notes__reading__book.md--7b85f6b1c02a41f7.json
   axl--papers__example.pdf--5af1299d722f61e0.json
 ```
 
-The sidecar files contain anchors, selected text, colors, sticky note content, optional titles, timestamps, and PDF page rectangles.
+The sidecar files contain anchors, selected text, annotation types, colors, comment content, optional titles, timestamps, screenshot asset paths, and PDF page rectangles. Screenshot annotations store their generated PNG snippets under `.obsidian-annotations/assets/`.
 The filenames are intentionally short and Windows-safe; the original vault path lives inside the JSON and `index.json`. Older long sidecar filenames are migrated automatically when Axl Light reads them.
 
 Your original `.md` and `.pdf` files remain unchanged. If you disable or remove the plugin, your documents stay clean.

@@ -15,6 +15,8 @@ export const ANNOTATION_COLORS = [
 ] as const;
 
 export type AnnotationColor = (typeof ANNOTATION_COLORS)[number];
+export const ANNOTATION_TYPES = ["highlight", "underline", "wavy", "screenshot"] as const;
+export type AnnotationType = (typeof ANNOTATION_TYPES)[number];
 export type SidebarSide = "left" | "right";
 export type AnnotationSortMode = "newest" | "oldest" | "document";
 
@@ -36,6 +38,9 @@ export interface LocatedAnchor {
 export interface HighlightAnnotation {
   id: string;
   color: AnnotationColor;
+  /** Missing on sidecars created before 0.4; renderers treat it as highlight. */
+  type?: AnnotationType;
+  imagePath?: string;
   anchor: TextAnchor;
   createdAt: string;
   orphaned?: boolean;
@@ -59,6 +64,9 @@ export interface PdfAnchor {
 export interface PdfHighlightAnnotation {
   id: string;
   color: AnnotationColor;
+  /** Missing on sidecars created before 0.4; renderers treat it as highlight. */
+  type?: AnnotationType;
+  imagePath?: string;
   anchor: PdfAnchor;
   createdAt: string;
   orphaned?: boolean;
